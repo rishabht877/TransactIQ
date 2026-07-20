@@ -1,0 +1,11 @@
+# Grafana datasource provisioning (Phase 0): wire Prometheus so the datasource is green out
+# of the box. Prometheus is reachable by its compose service name on the shared network.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

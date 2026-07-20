@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: payment-gateway
+
+server:
+  port: 8080
+
+# Actuator: expose only health/info/prometheus. Kubernetes-style liveness/readiness probes
+# are enabled now so the same config works when we move to Minikube in Phase 6.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: payment-gateway

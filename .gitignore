@@ -1,0 +1,28 @@
+# --- Gradle ---
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# --- Java / IDE ---
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+out/
+
+# --- Node / React (dashboard, Phase 5) ---
+node_modules/
+dist/
+.vite/
+
+# --- Env / secrets ---
+.env
+!.env.example
+
+# --- OS ---
+.DS_Store

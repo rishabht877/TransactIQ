@@ -1,0 +1,30 @@
+# Central version catalog. Every module references versions/libraries from here so we
+# never get cross-module version drift — a key reason we chose a Gradle multi-module monorepo.
+[versions]
+# Spring Boot 3.x line (Java 21 baseline). Bump here to upgrade every service at once.
+springBoot = "3.3.5"
+springDependencyManagement = "1.1.6"
+# Testcontainers is pulled in now so Phase 2's Kafka/MySQL/Redis integration tests have it ready.
+testcontainers = "1.20.4"
+
+[libraries]
+# --- Spring Boot starters (versions managed by the Spring dependency-management plugin,
+#     so no explicit version here) ---
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
+spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
+
+# Micrometer -> Prometheus registry (exposes /actuator/prometheus).
+micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+
+# Testcontainers (used from Phase 2 onward).
+testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
+testcontainers-kafka = { module = "org.testcontainers:kafka" }
+testcontainers-mysql = { module = "org.testcontainers:mysql" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "springDependencyManagement" }

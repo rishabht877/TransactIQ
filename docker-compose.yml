@@ -1,0 +1,154 @@
+# TransactIQ local infrastructure (Phase 0).
+#
+# Scope: infra only. The three Java services run from Gradle on the HOST in Phase 0
+# (fast dev loop) and reach these containers via localhost:<port>. Dockerfiles for the
+# services arrive in Phase 6. Ollama is intentionally deferred to Phase 3 (heavy model pull).
+#
+# `docker compose up -d` should bring every service to `healthy`.
+
+name: transactiq
+
+services:
+  # -------------------------------------------------------------------------
+  # Kafka in KRaft mode (single-node, combined controller+broker). No Zookeeper.
+  # -------------------------------------------------------------------------
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: transactiq-kafka
+    ports:
+      - "9092:9092"          # PLAINTEXT listener for host-run clients
+    environment:
+      # --- KRaft identity & roles ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Single-node quorum: this node (id 1) is the sole voter, reachable on the CONTROLLER
+      # listener port 9093. Without this the broker starts but never elects a controller.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # --- Listeners ---
+      # Bind both listeners on all interfaces inside the container.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # CRITICAL: advertise an address the HOST can reach (host-run services connect via
+      # localhost). Advertising the container hostname would let a client connect once and
+      # then fail with a confusing timeout on the address handed back by metadata.
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      # --- Single-node topic defaults (no replicas available) ---
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      # NOTE: the exact CLI path is verified against this image tag during Phase 0 bring-up
+      # (docker exec transactiq-kafka ls /opt/kafka/bin). For apache/kafka:3.8.x the tool is
+      # /opt/kafka/bin/kafka-topics.sh. If this ever reports unhealthy, suspect the binary
+      # name/path here BEFORE assuming Kafka itself is broken.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - transactiq
+
+  # -------------------------------------------------------------------------
+  # MySQL 8 — business data + outbox + processed_events (schema created in later phases).
+  # -------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.4
+    container_name: transactiq-mysql
+    ports:
+      # Host 3307 -> container 3306. Host port is 3307 (not 3306) to avoid clashing with a
+      # local host MySQL that commonly owns 3306. Host-run services connect via localhost:3307.
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-transactiq}
+      MYSQL_USER: ${MYSQL_USER:-transactiq}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-transactiq}
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD:-rootpw} --silent || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - transactiq
+
+  # -------------------------------------------------------------------------
+  # Redis — idempotency-key lookups + hot dedup (used from Phase 2).
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: transactiq-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - transactiq
+
+  # -------------------------------------------------------------------------
+  # Prometheus — scrapes each service's /actuator/prometheus (targets in ops/prometheus).
+  # Services run on the host, so the scrape config uses host.docker.internal.
+  # -------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: transactiq-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Lets the container reach host-run services on Linux too (already works on Docker Desktop).
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - transactiq
+
+  # -------------------------------------------------------------------------
+  # Grafana — dashboards (real panels arrive in Phase 4). Prometheus datasource provisioned.
+  # -------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: transactiq-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - transactiq
+
+networks:
+  transactiq:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  grafana-data:

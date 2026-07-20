@@ -1,0 +1,23 @@
+# Prometheus scrape config (Phase 0).
+#
+# The three Java services run on the HOST (not in Docker) during local dev, so Prometheus —
+# which runs in a container — reaches them via host.docker.internal. Spring Boot Actuator
+# exposes metrics at /actuator/prometheus. Rich dashboards/alerts arrive in Phase 4.
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: transactiq-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "host.docker.internal:8080"   # payment-gateway
+          - "host.docker.internal:8081"   # payment-processor
+          - "host.docker.internal:8082"   # fraud-service
+        labels:
+          system: transactiq

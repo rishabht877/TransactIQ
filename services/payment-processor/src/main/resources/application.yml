@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: payment-processor
+  # Kafka broker address (host-run service -> containerized broker's advertised listener).
+  # No @KafkaListener beans exist yet in Phase 0, so nothing connects on boot; this is here
+  # ready for Phase 1.
+  kafka:
+    bootstrap-servers: localhost:9092
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: payment-processor
