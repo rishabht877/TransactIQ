@@ -1,14 +1,55 @@
 spring:
   application:
     name: payment-processor
-  # Kafka broker address (host-run service -> containerized broker's advertised listener).
-  # No @KafkaListener beans exist yet in Phase 0, so nothing connects on boot; this is here
-  # ready for Phase 1.
+
+  datasource:
+    url: jdbc:mysql://localhost:3307/transactiq?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:transactiq}
+    password: ${MYSQL_PASSWORD:transactiq}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    # Both services carry the same shared migrations. Flyway's DB lock makes concurrent startup
+    # safe; whichever service runs second sees the migrations already applied and does nothing.
+    enabled: true
+
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: payment-processor
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Read from the beginning on first run so no early events are missed.
+      auto-offset-reset: earliest
+      # Spring commits offsets after the listener returns successfully (no auto-commit), which —
+      # combined with the Phase 2 idempotent consumer — gives effectively-once processing.
+      enable-auto-commit: false
+    producer:
+      # Used by the Phase 2 outbox relay for output events (PaymentProcessed / PaymentBlocked).
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      ack-mode: record
 
 server:
   port: 8081
+
+transactiq:
+  outbox:
+    poll-interval-ms: 500
+    batch-size: 100
 
 management:
   endpoints:

@@ -1,12 +1,30 @@
-// payment-processor — Kafka consumer. Consume/dedup/outbox logic arrives in Phases 1–2.
-// spring-kafka is included now (dependency present is fine); with no broker config it may
-// log noisy connection-retry warnings on boot — harmless, does not affect health.
+// payment-processor — consumes payments.requested, writes final payment state to MySQL.
+// Phase 1: consume + write PROCESSED (fraud stubbed APPROVE). Phase 2: processed_events
+// idempotent consumer, @RetryableTopic + DLQ, transactional outbox for output events.
 dependencies {
     implementation(libs.spring.boot.starter.web)
     implementation(libs.spring.boot.starter.actuator)
-    implementation(libs.micrometer.registry.prometheus)
+    implementation(libs.spring.boot.starter.data.jpa)
     implementation(libs.spring.kafka)
+    implementation(libs.micrometer.registry.prometheus)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.mysql)
+    runtimeOnly(libs.mysql.connector)
 
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.spring.kafka.test)
+    testImplementation(platform(libs.testcontainers.bom))
+    testImplementation(libs.testcontainers.junit)
+    testImplementation(libs.testcontainers.mysql)
+    testImplementation(libs.testcontainers.kafka)
+    testImplementation(libs.awaitility)
+}
+
+// Shared Flyway migrations (see payment-gateway build for the shared-schema rationale).
+sourceSets {
+    named("main") {
+        resources {
+            srcDir(rootProject.file("db-migrations"))
+        }
+    }
 }

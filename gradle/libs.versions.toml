@@ -13,17 +13,27 @@ testcontainers = "1.20.4"
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
 spring-boot-starter-actuator = { module = "org.springframework.boot:spring-boot-starter-actuator" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
+spring-boot-starter-data-jpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
+spring-boot-starter-data-redis = { module = "org.springframework.boot:spring-boot-starter-data-redis" }
+spring-boot-starter-validation = { module = "org.springframework.boot:spring-boot-starter-validation" }
 spring-kafka = { module = "org.springframework.kafka:spring-kafka" }
 spring-kafka-test = { module = "org.springframework.kafka:spring-kafka-test" }
+
+# Persistence (versions managed by the Spring dependency-management plugin).
+mysql-connector = { module = "com.mysql:mysql-connector-j" }
+flyway-core = { module = "org.flywaydb:flyway-core" }
+flyway-mysql = { module = "org.flywaydb:flyway-mysql" }
 
 # Micrometer -> Prometheus registry (exposes /actuator/prometheus).
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
 
-# Testcontainers (used from Phase 2 onward).
+# Testcontainers (integration tests for the Kafka/MySQL/idempotency paths — Phase 2+).
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }
 testcontainers-junit = { module = "org.testcontainers:junit-jupiter" }
 testcontainers-kafka = { module = "org.testcontainers:kafka" }
 testcontainers-mysql = { module = "org.testcontainers:mysql" }
+# Redis has no dedicated Testcontainers module; we run it via GenericContainer (core).
+awaitility = { module = "org.awaitility:awaitility" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }

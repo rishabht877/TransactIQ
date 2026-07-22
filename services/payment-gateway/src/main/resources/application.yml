@@ -2,11 +2,48 @@ spring:
   application:
     name: payment-gateway
 
+  datasource:
+    # MySQL runs in docker-compose, mapped to host port 3307 (3306 is taken by a local MySQL).
+    url: jdbc:mysql://localhost:3307/transactiq?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:transactiq}
+    password: ${MYSQL_PASSWORD:transactiq}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      # Flyway owns the schema; Hibernate must never touch DDL.
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    # Default location classpath:db/migration — supplied by the shared db-migrations/ dir.
+    baseline-on-migrate: false
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Durability: wait for all in-sync replicas + retries so the outbox relay only marks a
+      # row published after the broker has durably acked it.
+      acks: all
+      properties:
+        enable.idempotence: true
+
 server:
   port: 8080
 
-# Actuator: expose only health/info/prometheus. Kubernetes-style liveness/readiness probes
-# are enabled now so the same config works when we move to Minikube in Phase 6.
+# Outbox relay polling cadence (Phase 2).
+transactiq:
+  outbox:
+    poll-interval-ms: 500
+    batch-size: 100
+
 management:
   endpoints:
     web:
