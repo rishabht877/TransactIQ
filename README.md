@@ -72,11 +72,61 @@ curl -s localhost:8080/actuator/prometheus | head # Micrometer metrics
 
 Then open Grafana at http://localhost:3000 and confirm the **Prometheus** datasource is green.
 
+## Submitting a payment (Phases 1–2)
+
+```bash
+# Idempotency-Key is REQUIRED. Re-sending the same key never double-charges.
+curl -i -X POST localhost:8080/api/payments \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-001' \
+  -d '{"amount":49.99,"currency":"USD","customerId":"cust-1","cardLast4":"4242","country":"US","merchant":"Acme"}'
+# -> 202 Accepted {"paymentId":"...","status":"RECEIVED"}, becomes PROCESSED asynchronously.
+
+curl -s localhost:8080/api/payments        # list payments and their statuses
+```
+
+## Correctness model (the part interviewers probe)
+
+End-to-end guarantee: **effectively-once** — idempotent processing over Kafka's at-least-once
+delivery. We deliberately do **not** claim exactly-once (unachievable across a DB and a broker).
+
+- **Idempotency at the edge** — `Idempotency-Key` header → Redis `SETNX` fast-path (hot dedup);
+  the **UNIQUE constraint on `payments.idempotency_key`** is the durable source of truth. Same
+  key → same payment id, never a second charge.
+- **Transactional outbox** — the payment row and an `outbox` row are written in ONE DB
+  transaction (no dual-write). A `@Scheduled` relay publishes unpublished rows to Kafka with
+  `SKIP LOCKED`, stamping `published_at` only on broker ack. Both gateway and processor use it.
+- **Idempotent consumer** — the processor claims each `event_id` in `processed_events`
+  (PRIMARY KEY) in the SAME transaction as the business effect, so a re-delivered event is
+  detected and skipped.
+- **Retry + DLQ** — `@RetryableTopic` gives non-blocking retries
+  (`payments.requested-retry-0/1/2`); poison messages land in `payments.requested-dlt`.
+
+## Tests
+
+Integration tests exercise the real Kafka + idempotency paths and **require the compose infra
+to be running** (`docker compose up -d`). They use an in-JVM EmbeddedKafka broker + the compose
+MySQL/Redis. (Testcontainers would be more hermetic, but this machine's Docker Desktop 29 drops
+JDBC connections to Testcontainers' ephemeral ports — see `ReplayIdempotencyIT` Javadoc.)
+
+```bash
+./gradlew test                 # unit + integration tests (IdempotencyIT, ReplayIdempotencyIT)
+
+# Soak test: fire N payments, SIGKILL the processor mid-run, restart, assert no loss / no dupes.
+# Requires the gateway running on :8080.
+./gradlew :services:payment-gateway:bootRun &   # in one terminal
+scripts/soak-test.sh 200                         # in another
+```
+
+- `ReplayIdempotencyIT` — the same event delivered 3× produces exactly one business effect.
+- `IdempotencyIT` — the same Idempotency-Key posted twice returns one payment / one outbox row.
+- `soak-test.sh` — crash-recovery: **zero loss, zero duplicates** across a processor SIGKILL.
+
 ## Phased build plan
 
-- **Phase 0** — scaffold + infra ✅ *(this phase)*
-- **Phase 1** — happy-path payment flow
-- **Phase 2** — idempotency, transactional outbox, DLQ + retry
+- **Phase 0** — scaffold + infra ✅
+- **Phase 1** — happy-path payment flow ✅
+- **Phase 2** — idempotency, transactional outbox, DLQ + retry ✅
 - **Phase 3** — LLM fraud triage (LangChain4j + Ollama)
 - **Phase 4** — observability dashboards
 - **Phase 5** — React dashboard

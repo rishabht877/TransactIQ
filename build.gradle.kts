@@ -27,5 +27,9 @@ subprojects {
 
     tasks.withType<Test> {
         useJUnitPlatform()
+        // Integration tests (*IT) run against the docker-compose infra (MySQL/Redis) + an
+        // in-JVM EmbeddedKafka broker, so `docker compose up` must be running first. See the
+        // Javadoc on ReplayIdempotencyIT for why we use compose infra rather than Testcontainers
+        // on this machine (Docker Desktop 29 drops JDBC connections to ephemeral container ports).
     }
 }

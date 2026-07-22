@@ -31,12 +31,12 @@ public class PaymentController {
      * Accept a payment. Returns 202 Accepted with the payment id — processing is asynchronous
      * (the processor consumes PaymentRequested and moves the payment to a terminal state).
      *
-     * <p>Phase 1: the Idempotency-Key header is optional. Phase 2 makes it required and wires
-     * Redis + DB dedup so the same key never double-charges.
+     * <p>The {@code Idempotency-Key} header is REQUIRED (a missing header is a 400). Re-sending
+     * the same key returns the original payment id and never creates a second payment.
      */
     @PostMapping
     public ResponseEntity<PaymentResponse> create(
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader(value = "Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody PaymentRequest request) {
         PaymentResponse response = paymentService.createPayment(idempotencyKey, request);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);

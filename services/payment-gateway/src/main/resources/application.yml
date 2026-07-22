@@ -24,6 +24,14 @@ spring:
     # Default location classpath:db/migration — supplied by the shared db-migrations/ dir.
     baseline-on-migrate: false
 
+  data:
+    redis:
+      # Redis is the fast-path idempotency-key cache (hot dedup). The DB UNIQUE constraint on
+      # payments.idempotency_key remains the durable source of truth.
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:

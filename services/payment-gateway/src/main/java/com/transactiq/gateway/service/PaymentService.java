@@ -1,90 +1,80 @@
 package com.transactiq.gateway.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.transactiq.gateway.api.PaymentRequest;
 import com.transactiq.gateway.api.PaymentResponse;
 import com.transactiq.gateway.domain.Payment;
 import com.transactiq.gateway.domain.PaymentRepository;
-import com.transactiq.gateway.domain.PaymentStatus;
-import com.transactiq.gateway.event.PaymentRequestedEvent;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 /**
- * Phase 1 payment creation: persist the payment, then publish PaymentRequested.
+ * Orchestrates idempotent payment creation. Three layers of dedup, cheapest first:
  *
- * <p><b>KNOWN DUAL-WRITE PROBLEM (fixed in Phase 2):</b> this method writes to the DB and then
- * publishes to Kafka as two independent operations. If the process dies after the DB commit
- * but before the publish (or the publish succeeds but the tx rolls back), the two stores
- * diverge — a payment with no event, or an event with no payment. There is no atomic
- * "commit DB + send to Kafka". Phase 2 replaces this with the <i>transactional outbox</i>:
- * the payment row and an outbox row are written in ONE transaction, and a separate relay
- * publishes the outbox row to Kafka.
+ * <ol>
+ *   <li><b>Redis fast-path</b> — repeat key returns the cached result, no DB, no publish.</li>
+ *   <li><b>DB read</b> — Redis miss but the key exists in {@code payments} (cache evicted /
+ *       restarted): return the existing row.</li>
+ *   <li><b>DB UNIQUE constraint</b> — two requests race past 1 and 2 at once: one insert wins,
+ *       the loser catches the violation and returns the winner's row.</li>
+ * </ol>
+ *
+ * <p>The result: the same Idempotency-Key always maps to exactly one payment — never a double
+ * charge — with Redis as an optimization and the DB constraint as the durable guarantee.
  */
 @Service
 public class PaymentService {
 
-    public static final String TOPIC_PAYMENTS_REQUESTED = "payments.requested";
-
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
+    private final IdempotencyService idempotencyService;
+    private final PaymentWriter paymentWriter;
     private final PaymentRepository paymentRepository;
-    private final KafkaTemplate<String, String> kafkaTemplate;
-    private final ObjectMapper objectMapper;
 
-    public PaymentService(PaymentRepository paymentRepository,
-                          KafkaTemplate<String, String> kafkaTemplate,
-                          ObjectMapper objectMapper) {
+    public PaymentService(IdempotencyService idempotencyService,
+                          PaymentWriter paymentWriter,
+                          PaymentRepository paymentRepository) {
+        this.idempotencyService = idempotencyService;
+        this.paymentWriter = paymentWriter;
         this.paymentRepository = paymentRepository;
-        this.kafkaTemplate = kafkaTemplate;
-        this.objectMapper = objectMapper;
     }
 
     public PaymentResponse createPayment(String idempotencyKey, PaymentRequest request) {
-        String paymentId = UUID.randomUUID().toString();
-        Payment payment = new Payment(
-                paymentId,
-                idempotencyKey,
-                request.amount(),
-                request.currency(),
-                request.customerId(),
-                request.cardLast4(),
-                request.country(),
-                request.merchant(),
-                PaymentStatus.RECEIVED);
-        // save() commits in its own transaction, so we publish AFTER the row is durable — the
-        // processor can never look up a payment that has not been committed yet. This is still
-        // a dual-write (the publish below can fail after the commit); Phase 2's outbox fixes it.
-        paymentRepository.save(payment);
+        // 1. Redis fast-path.
+        var cached = idempotencyService.lookup(idempotencyKey);
+        if (cached.isPresent()) {
+            log.debug("Idempotency hit (redis) for key {}", idempotencyKey);
+            return cached.get();
+        }
 
-        // Phase 1 naive publish (dual-write — see class Javadoc). Replaced by the outbox in Phase 2.
-        publishPaymentRequested(payment);
+        // 2. DB read (durable, covers a cold/evicted cache).
+        var existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) {
+            PaymentResponse response = toResponse(existing.get());
+            idempotencyService.remember(idempotencyKey, response);
+            return response;
+        }
 
-        log.info("Created payment {} (status={})", paymentId, payment.getStatus());
-        return new PaymentResponse(paymentId, payment.getStatus());
+        // 3. Insert payment + outbox in one transaction; the UNIQUE constraint guards the race.
+        PaymentResponse response;
+        try {
+            response = paymentWriter.insertNewPayment(idempotencyKey, request);
+            log.info("Created payment {} for key {}", response.paymentId(), idempotencyKey);
+        } catch (DataIntegrityViolationException duplicate) {
+            // A concurrent request won. Re-read its row in a fresh transaction and return it.
+            Payment winner = paymentRepository.findByIdempotencyKey(idempotencyKey)
+                    .orElseThrow(() -> duplicate);
+            log.info("Idempotency race for key {} -> returning existing payment {}",
+                    idempotencyKey, winner.getId());
+            response = toResponse(winner);
+        }
+
+        idempotencyService.remember(idempotencyKey, response);
+        return response;
     }
 
-    private void publishPaymentRequested(Payment payment) {
-        PaymentRequestedEvent event = new PaymentRequestedEvent(
-                UUID.randomUUID().toString(),
-                payment.getId(),
-                payment.getIdempotencyKey(),
-                payment.getAmount(),
-                payment.getCurrency(),
-                payment.getCustomerId(),
-                payment.getCardLast4(),
-                payment.getCountry(),
-                payment.getMerchant());
-        try {
-            String json = objectMapper.writeValueAsString(event);
-            // Key by paymentId so all events for one payment share a partition (per-key ordering).
-            kafkaTemplate.send(TOPIC_PAYMENTS_REQUESTED, payment.getId(), json);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize PaymentRequestedEvent", e);
-        }
+    private static PaymentResponse toResponse(Payment payment) {
+        return new PaymentResponse(payment.getId(), payment.getStatus());
     }
 }
