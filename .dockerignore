@@ -1,0 +1,8 @@
+# Keep the Docker build context small & reproducible.
+.git
+**/build
+**/.gradle
+dashboard/node_modules
+dashboard/dist
+**/*.log
+.env

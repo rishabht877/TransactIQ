@@ -1,0 +1,46 @@
+# TransactIQ Helm values.
+#
+# Self-contained chart: infra (Kafka KRaft, MySQL, Redis, Ollama) and the three app services are
+# all plain Deployments/StatefulSets in templates/ — no external subchart repos, so `helm lint`
+# and `helm template` work offline. In a production chart you'd swap the infra for hardened
+# community subcharts (Bitnami) or a managed Kafka/MySQL/Redis.
+
+mysql:
+  image: mysql:8.4
+  database: transactiq
+  user: transactiq
+  password: transactiq
+  rootPassword: rootpw
+
+redis:
+  image: redis:7.4-alpine
+
+kafka:
+  image: apache/kafka:3.8.1
+
+ollama:
+  image: ollama/ollama:0.5.4
+  # The model must be pulled into the ollama pod before enabling the LLM (see chart README):
+  #   kubectl exec deploy/ollama -- ollama pull llama3.2
+  model: llama3.2
+
+fraud:
+  llm:
+    # Disabled by default so the cluster works end-to-end WITHOUT the multi-GB model pull
+    # (rules-only triage). Set to true after pulling the model into the ollama pod.
+    enabled: false
+
+# App images. On Minikube, build into the cluster's Docker daemon (eval $(minikube docker-env))
+# and keep pullPolicy IfNotPresent so k8s uses the local image instead of pulling from a registry.
+images:
+  gateway: transactiq/payment-gateway:local
+  processor: transactiq/payment-processor:local
+  fraudService: transactiq/fraud-service:local
+  pullPolicy: IfNotPresent
+
+gateway:
+  replicas: 1
+processor:
+  replicas: 1
+fraudService:
+  replicas: 1

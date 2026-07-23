@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-service
+  labels:
+    {{- include "transactiq.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: fraud-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-service
+  labels:
+    app: fraud-service
+    {{- include "transactiq.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.fraudService.replicas }}
+  selector:
+    matchLabels:
+      app: fraud-service
+  template:
+    metadata:
+      labels:
+        app: fraud-service
+    spec:
+      containers:
+        - name: fraud-service
+          image: {{ .Values.images.fraudService }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          ports:
+            - containerPort: 8082
+          env:
+            # LLM off by default (rules-only) so the cluster is functional without pulling the
+            # model. Enable via --set fraud.llm.enabled=true after pulling the model into ollama.
+            - { name: FRAUD_LLM_ENABLED, value: {{ .Values.fraud.llm.enabled | quote }} }
+            - { name: OLLAMA_BASE_URL, value: "http://ollama:11434" }
+            - { name: FRAUD_LLM_MODEL, value: {{ .Values.ollama.model | quote }} }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8082 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8082 }
+            initialDelaySeconds: 25
+            periodSeconds: 15

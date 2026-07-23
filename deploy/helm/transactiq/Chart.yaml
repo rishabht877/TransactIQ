@@ -1,0 +1,6 @@
+apiVersion: v2
+name: transactiq
+description: TransactIQ — distributed payment processing (gateway, processor, fraud) + infra
+type: application
+version: 0.1.0
+appVersion: "0.0.1"

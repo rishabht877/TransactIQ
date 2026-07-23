@@ -117,6 +117,17 @@ curl -s -X POST localhost:8082/api/fraud/evaluate -H 'Content-Type: application/
 The processor calls fraud-service for every payment; `BLOCK`/`ESCALATE` route to
 `payments.blocked` (terminal `BLOCKED`), `APPROVE` to `payments.processed` (`PROCESSED`).
 
+## Kubernetes + Helm (Phase 6)
+
+Dockerfiles for all three services (multi-stage, built from the repo root) and a self-contained
+Helm chart in [`deploy/helm/transactiq`](deploy/helm/transactiq) that deploys the apps + infra
+(Kafka KRaft, MySQL, Redis, Ollama) to a cluster. See the [chart README](deploy/helm/transactiq/README.md)
+for the full Minikube walkthrough.
+
+> **Verification status (honest):** the gateway image builds, and the chart passes
+> `helm lint` + `helm template` (14 objects render). A live end-to-end Minikube deploy is
+> documented but was not executed in this dev environment.
+
 ## Dashboard (Phase 5)
 
 A React (Vite) UI in [`dashboard/`](dashboard/): a **submit-payment form**, a **live payments
@@ -200,5 +211,5 @@ scripts/soak-test.sh 200                         # in another
 - **Phase 3** — LLM fraud triage (LangChain4j + Ollama) ✅
 - **Phase 4** — observability dashboards ✅
 - **Phase 5** — React dashboard ✅
-- **Phase 6** — Kubernetes + Helm (Minikube)
+- **Phase 6** — Kubernetes + Helm (Minikube) ✅ *(Dockerfiles + Helm chart built & validated)*
 - **Phase 7** — docs + interview defense notes
