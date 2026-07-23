@@ -4,6 +4,8 @@ import com.transactiq.gateway.api.PaymentRequest;
 import com.transactiq.gateway.api.PaymentResponse;
 import com.transactiq.gateway.domain.Payment;
 import com.transactiq.gateway.domain.PaymentRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,47 +33,60 @@ public class PaymentService {
     private final IdempotencyService idempotencyService;
     private final PaymentWriter paymentWriter;
     private final PaymentRepository paymentRepository;
+    private final MeterRegistry meterRegistry;
 
     public PaymentService(IdempotencyService idempotencyService,
                           PaymentWriter paymentWriter,
-                          PaymentRepository paymentRepository) {
+                          PaymentRepository paymentRepository,
+                          MeterRegistry meterRegistry) {
         this.idempotencyService = idempotencyService;
         this.paymentWriter = paymentWriter;
         this.paymentRepository = paymentRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     public PaymentResponse createPayment(String idempotencyKey, PaymentRequest request) {
-        // 1. Redis fast-path.
-        var cached = idempotencyService.lookup(idempotencyKey);
-        if (cached.isPresent()) {
-            log.debug("Idempotency hit (redis) for key {}", idempotencyKey);
-            return cached.get();
-        }
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String result = "created";
+        try {
+            // 1. Redis fast-path.
+            var cached = idempotencyService.lookup(idempotencyKey);
+            if (cached.isPresent()) {
+                log.debug("Idempotency hit (redis) for key {}", idempotencyKey);
+                result = "idempotent_redis";
+                return cached.get();
+            }
 
-        // 2. DB read (durable, covers a cold/evicted cache).
-        var existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
-        if (existing.isPresent()) {
-            PaymentResponse response = toResponse(existing.get());
+            // 2. DB read (durable, covers a cold/evicted cache).
+            var existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
+            if (existing.isPresent()) {
+                PaymentResponse response = toResponse(existing.get());
+                idempotencyService.remember(idempotencyKey, response);
+                result = "idempotent_db";
+                return response;
+            }
+
+            // 3. Insert payment + outbox in one transaction; the UNIQUE constraint guards the race.
+            PaymentResponse response;
+            try {
+                response = paymentWriter.insertNewPayment(idempotencyKey, request);
+                log.info("Created payment {} for key {}", response.paymentId(), idempotencyKey);
+            } catch (DataIntegrityViolationException duplicate) {
+                // A concurrent request won. Re-read its row in a fresh transaction and return it.
+                Payment winner = paymentRepository.findByIdempotencyKey(idempotencyKey)
+                        .orElseThrow(() -> duplicate);
+                log.info("Idempotency race for key {} -> returning existing payment {}",
+                        idempotencyKey, winner.getId());
+                result = "idempotent_race";
+                response = toResponse(winner);
+            }
+
             idempotencyService.remember(idempotencyKey, response);
             return response;
+        } finally {
+            sample.stop(meterRegistry.timer("transactiq.gateway.create"));
+            meterRegistry.counter("transactiq.payments.accepted", "result", result).increment();
         }
-
-        // 3. Insert payment + outbox in one transaction; the UNIQUE constraint guards the race.
-        PaymentResponse response;
-        try {
-            response = paymentWriter.insertNewPayment(idempotencyKey, request);
-            log.info("Created payment {} for key {}", response.paymentId(), idempotencyKey);
-        } catch (DataIntegrityViolationException duplicate) {
-            // A concurrent request won. Re-read its row in a fresh transaction and return it.
-            Payment winner = paymentRepository.findByIdempotencyKey(idempotencyKey)
-                    .orElseThrow(() -> duplicate);
-            log.info("Idempotency race for key {} -> returning existing payment {}",
-                    idempotencyKey, winner.getId());
-            response = toResponse(winner);
-        }
-
-        idempotencyService.remember(idempotencyKey, response);
-        return response;
     }
 
     private static PaymentResponse toResponse(Payment payment) {

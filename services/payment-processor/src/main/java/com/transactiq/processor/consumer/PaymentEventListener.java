@@ -3,6 +3,7 @@ package com.transactiq.processor.consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.transactiq.processor.event.PaymentRequestedEvent;
 import com.transactiq.processor.service.PaymentProcessingService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,10 +35,14 @@ public class PaymentEventListener {
 
     private final PaymentProcessingService processingService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
-    public PaymentEventListener(PaymentProcessingService processingService, ObjectMapper objectMapper) {
+    public PaymentEventListener(PaymentProcessingService processingService,
+                                ObjectMapper objectMapper,
+                                MeterRegistry meterRegistry) {
         this.processingService = processingService;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     @RetryableTopic(
@@ -59,6 +64,7 @@ public class PaymentEventListener {
     @DltHandler
     public void handleDlt(ConsumerRecord<String, String> record,
                           @Header(KafkaHeaders.DLT_EXCEPTION_MESSAGE) String exceptionMessage) {
+        meterRegistry.counter("transactiq.events.dlq").increment();
         log.error("DLQ: poison message on {} offset {} -> reason: {} | payload: {}",
                 record.topic(), record.offset(), exceptionMessage, record.value());
     }

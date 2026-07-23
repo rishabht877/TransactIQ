@@ -13,6 +13,8 @@ import com.transactiq.processor.fraud.FraudDecider;
 import com.transactiq.processor.fraud.FraudDecision;
 import com.transactiq.processor.outbox.OutboxEvent;
 import com.transactiq.processor.outbox.OutboxRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,17 +46,20 @@ public class PaymentProcessingService {
     private final OutboxRepository outboxRepository;
     private final FraudDecider fraudDecider;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public PaymentProcessingService(ProcessedEventRepository processedEventRepository,
                                     PaymentRepository paymentRepository,
                                     OutboxRepository outboxRepository,
                                     FraudDecider fraudDecider,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    MeterRegistry meterRegistry) {
         this.processedEventRepository = processedEventRepository;
         this.paymentRepository = paymentRepository;
         this.outboxRepository = outboxRepository;
         this.fraudDecider = fraudDecider;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
     }
 
     /** Outcome of a processing attempt (returned so callers/tests can distinguish a skip). */
@@ -62,14 +67,24 @@ public class PaymentProcessingService {
 
     @Transactional
     public Outcome process(PaymentRequestedEvent event) {
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            return doProcess(event);
+        } finally {
+            sample.stop(meterRegistry.timer("transactiq.processing"));
+        }
+    }
+
+    private Outcome doProcess(PaymentRequestedEvent event) {
         // 1. Idempotent claim — first writer proceeds, re-deliveries short-circuit.
         if (processedEventRepository.claim(event.eventId()) == 0) {
             log.info("Duplicate event {} (payment {}) skipped — already processed",
                     event.eventId(), event.paymentId());
+            meterRegistry.counter("transactiq.events.duplicate").increment();
             return Outcome.DUPLICATE_SKIPPED;
         }
 
-        // 2. Business effect: fraud triage (stubbed APPROVE in Phase 2) -> terminal status.
+        // 2. Business effect: fraud triage -> terminal status.
         Payment payment = paymentRepository.findById(event.paymentId())
                 .orElseThrow(() -> new IllegalStateException(
                         "Payment not found for id=" + event.paymentId()));
@@ -78,6 +93,7 @@ public class PaymentProcessingService {
         boolean approved = decision.decision() == Decision.APPROVE;
         PaymentStatus terminal = approved ? PaymentStatus.PROCESSED : PaymentStatus.BLOCKED;
         payment.setStatus(terminal);
+        meterRegistry.counter("transactiq.payments.processed", "status", terminal.name()).increment();
 
         // 3. Output event via the outbox (published by this service's relay).
         String topic = approved ? TOPIC_PROCESSED : TOPIC_BLOCKED;

@@ -1,0 +1,13 @@
+# Grafana dashboard provider (Phase 4): loads dashboard JSON from this provisioning directory.
+apiVersion: 1
+
+providers:
+  - name: transactiq
+    orgId: 1
+    folder: TransactIQ
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

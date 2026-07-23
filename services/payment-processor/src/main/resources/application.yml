@@ -69,3 +69,8 @@ management:
   metrics:
     tags:
       application: payment-processor
+    distribution:
+      # Histogram buckets for p99 latency of the processing path (and HTTP).
+      percentiles-histogram:
+        http.server.requests: true
+        transactiq.processing: true

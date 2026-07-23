@@ -117,6 +117,33 @@ curl -s -X POST localhost:8082/api/fraud/evaluate -H 'Content-Type: application/
 The processor calls fraud-service for every payment; `BLOCK`/`ESCALATE` route to
 `payments.blocked` (terminal `BLOCKED`), `APPROVE` to `payments.processed` (`PROCESSED`).
 
+## Observability (Phase 4)
+
+Micrometer → Prometheus → Grafana. Custom metrics on the processing path (on top of the
+auto-exported JVM / HTTP / Kafka-client metrics):
+
+- `transactiq_payments_accepted_total{result}` — created vs idempotent hit (gateway)
+- `transactiq_gateway_create_seconds` / `transactiq_processing_seconds` — timers with
+  percentile-histogram buckets (→ p99 via `histogram_quantile`)
+- `transactiq_payments_processed_total{status}` — PROCESSED vs BLOCKED
+- `transactiq_events_duplicate_total`, `transactiq_events_dlq_total`
+- `kafka_consumer_fetch_manager_records_lag_max` — consumer lag (auto)
+
+A **provisioned Grafana dashboard** ("TransactIQ — Overview") charts throughput, p50/p99
+processing latency, gateway p99, HTTP error rate, consumer lag, and fraud outcomes. Generate
+load and watch it populate:
+
+```bash
+# with all services running:
+for i in $(seq 1 60); do curl -s -o /dev/null -X POST localhost:8080/api/payments \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: load-$i" \
+  -d '{"amount":42.00,"currency":"USD","customerId":"c1","country":"US"}'; done
+```
+Open Grafana → http://localhost:3000 (admin/admin) → **TransactIQ — Overview**.
+
+> Note: with the LLM enabled, fraud triage (Ollama on CPU) is the throughput bottleneck — a
+> good talking point. Set `FRAUD_LLM_ENABLED=false` for a rules-only, high-throughput run.
+
 ## Correctness model (the part interviewers probe)
 
 End-to-end guarantee: **effectively-once** — idempotent processing over Kafka's at-least-once
@@ -160,7 +187,7 @@ scripts/soak-test.sh 200                         # in another
 - **Phase 1** — happy-path payment flow ✅
 - **Phase 2** — idempotency, transactional outbox, DLQ + retry ✅
 - **Phase 3** — LLM fraud triage (LangChain4j + Ollama) ✅
-- **Phase 4** — observability dashboards
+- **Phase 4** — observability dashboards ✅
 - **Phase 5** — React dashboard
 - **Phase 6** — Kubernetes + Helm (Minikube)
 - **Phase 7** — docs + interview defense notes
