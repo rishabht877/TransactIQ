@@ -117,6 +117,17 @@ curl -s -X POST localhost:8082/api/fraud/evaluate -H 'Content-Type: application/
 The processor calls fraud-service for every payment; `BLOCK`/`ESCALATE` route to
 `payments.blocked` (terminal `BLOCKED`), `APPROVE` to `payments.processed` (`PROCESSED`).
 
+## Dashboard (Phase 5)
+
+A React (Vite) UI in [`dashboard/`](dashboard/): a **submit-payment form**, a **live payments
+table** (2s polling) showing status + fraud decision + risk + human-readable reasoning, and a
+link to Grafana. The processor persists the triage result on the payment row (V3 migration) so
+the UI can show *why* a payment was approved/blocked.
+
+```bash
+cd dashboard && npm install && npm run dev   # http://localhost:5173 (gateway must be running)
+```
+
 ## Observability (Phase 4)
 
 Micrometer → Prometheus → Grafana. Custom metrics on the processing path (on top of the
@@ -188,6 +199,6 @@ scripts/soak-test.sh 200                         # in another
 - **Phase 2** — idempotency, transactional outbox, DLQ + retry ✅
 - **Phase 3** — LLM fraud triage (LangChain4j + Ollama) ✅
 - **Phase 4** — observability dashboards ✅
-- **Phase 5** — React dashboard
+- **Phase 5** — React dashboard ✅
 - **Phase 6** — Kubernetes + Helm (Minikube)
 - **Phase 7** — docs + interview defense notes

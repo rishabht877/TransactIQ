@@ -93,6 +93,10 @@ public class PaymentProcessingService {
         boolean approved = decision.decision() == Decision.APPROVE;
         PaymentStatus terminal = approved ? PaymentStatus.PROCESSED : PaymentStatus.BLOCKED;
         payment.setStatus(terminal);
+        // Persist the triage result on the row for the dashboard.
+        payment.setFraudDecision(decision.decision().name());
+        payment.setRiskScore(java.math.BigDecimal.valueOf(decision.riskScore()));
+        payment.setFraudReasons(serializeReasons(decision));
         meterRegistry.counter("transactiq.payments.processed", "status", terminal.name()).increment();
 
         // 3. Output event via the outbox (published by this service's relay).
@@ -119,6 +123,14 @@ public class PaymentProcessingService {
             return objectMapper.writeValueAsString(outcome);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Failed to serialize PaymentOutcomeEvent", e);
+        }
+    }
+
+    private String serializeReasons(FraudDecision decision) {
+        try {
+            return objectMapper.writeValueAsString(decision.reasons());
+        } catch (JsonProcessingException e) {
+            return "[]";
         }
     }
 }

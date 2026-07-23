@@ -45,6 +45,16 @@ public class Payment {
     @Column(name = "status", length = 16, nullable = false)
     private PaymentStatus status;
 
+    // Fraud triage result — written by the processor, read-only here (for the dashboard).
+    @Column(name = "fraud_decision", length = 16, insertable = false, updatable = false)
+    private String fraudDecision;
+
+    @Column(name = "risk_score", precision = 4, scale = 3, insertable = false, updatable = false)
+    private java.math.BigDecimal riskScore;
+
+    @Column(name = "fraud_reasons", columnDefinition = "TEXT", insertable = false, updatable = false)
+    private String fraudReasons;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
@@ -109,6 +119,18 @@ public class Payment {
 
     public void setStatus(PaymentStatus status) {
         this.status = status;
+    }
+
+    public String getFraudDecision() {
+        return fraudDecision;
+    }
+
+    public java.math.BigDecimal getRiskScore() {
+        return riskScore;
+    }
+
+    public String getFraudReasons() {
+        return fraudReasons;
     }
 
     public Instant getCreatedAt() {

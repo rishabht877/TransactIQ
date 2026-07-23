@@ -6,15 +6,13 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 
 /**
- * Processor's view of the shared {@code payments} row.
- *
- * <p>Intentionally maps only {@code id} and {@code status}: the processor's only DB write is
- * moving the payment to a terminal state. All the data it needs to make that decision (amount,
- * customer, country, ...) arrives in the event payload, not from re-reading the row. Mapping a
- * minimal set means the UPDATE only ever touches {@code status} (updated_at is maintained by
- * the DB's ON UPDATE clause). Each service owning its own persistence view avoids coupling.
+ * Processor's view of the shared {@code payments} row. It maps the columns it writes: the
+ * terminal {@code status} plus the fraud triage result ({@code fraud_decision}, {@code
+ * risk_score}, {@code fraud_reasons}) persisted for the dashboard. Everything it needs to make
+ * the decision arrives in the event payload, so it never re-reads amount/customer/etc.
  */
 @Entity
 @Table(name = "payments")
@@ -27,6 +25,15 @@ public class Payment {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 16, nullable = false)
     private PaymentStatus status;
+
+    @Column(name = "fraud_decision", length = 16)
+    private String fraudDecision;
+
+    @Column(name = "risk_score", precision = 4, scale = 3)
+    private BigDecimal riskScore;
+
+    @Column(name = "fraud_reasons", columnDefinition = "TEXT")
+    private String fraudReasons;
 
     protected Payment() {
         // for JPA
@@ -42,5 +49,17 @@ public class Payment {
 
     public void setStatus(PaymentStatus status) {
         this.status = status;
+    }
+
+    public void setFraudDecision(String fraudDecision) {
+        this.fraudDecision = fraudDecision;
+    }
+
+    public void setRiskScore(BigDecimal riskScore) {
+        this.riskScore = riskScore;
+    }
+
+    public void setFraudReasons(String fraudReasons) {
+        this.fraudReasons = fraudReasons;
     }
 }
