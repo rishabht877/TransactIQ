@@ -3,9 +3,46 @@
 A distributed payment-processing system with event streaming, idempotent processing, an
 LLM-based fraud triage layer, and full observability.
 
-> **Status:** built in phases. This is **Phase 0 — scaffold + infra**. Full architecture
-> docs, the honest *effectively-once (not exactly-once)* correctness explanation, and the
-> *why an LLM for fraud triage (not detection)* rationale land in Phase 7.
+> **Status:** Phases 0–6 complete. End-to-end payment flow with idempotent, effectively-once
+> processing, LLM fraud triage, observability, a React dashboard, and Docker/Helm packaging.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client([Client]) -->|"POST /api/payments<br/>Idempotency-Key"| gw
+
+    subgraph gwsub [payment-gateway]
+        gw[REST API] --> redis[(Redis<br/>idempotency)]
+        gw --> db1[(MySQL: payments + outbox<br/>one transaction)]
+        relay1[Outbox relay] -.polls.-> db1
+    end
+
+    relay1 -->|PaymentRequested| req{{payments.requested}}
+
+    req --> proc
+    subgraph procsub [payment-processor]
+        proc[Idempotent consumer<br/>processed_events claim] --> db2[(MySQL: status + outbox)]
+        proc -->|"@RetryableTopic"| dlq{{...-retry / ...-dlt}}
+        relay2[Outbox relay] -.polls.-> db2
+    end
+
+    proc -->|evaluate| fraud
+    subgraph fraudsub [fraud-service]
+        fraud[Rules engine<br/>velocity/geo/amount] --> llm[LangChain4j → Ollama LLM]
+    end
+
+    relay2 -->|PaymentProcessed| done{{payments.processed}}
+    relay2 -->|PaymentBlocked| blocked{{payments.blocked}}
+
+    gw & proc & fraud -.->|/actuator/prometheus| prom[(Prometheus)] --> graf[Grafana]
+    dash([React dashboard]) -->|poll| gw
+```
+
+**Guarantee:** *effectively-once* — idempotent processing over Kafka's at-least-once delivery.
+See [Correctness model](#correctness-model-the-part-interviewers-probe) and
+[Fraud triage](#fraud-triage-phase-3) for the honest *not-exactly-once* and *why-an-LLM*
+rationale.
 
 ## Tech stack (locked)
 
@@ -212,4 +249,4 @@ scripts/soak-test.sh 200                         # in another
 - **Phase 4** — observability dashboards ✅
 - **Phase 5** — React dashboard ✅
 - **Phase 6** — Kubernetes + Helm (Minikube) ✅ *(Dockerfiles + Helm chart built & validated)*
-- **Phase 7** — docs + interview defense notes
+- **Phase 7** — docs + architecture diagram ✅
