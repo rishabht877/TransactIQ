@@ -3,15 +3,24 @@ package com.transactiq.processor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.transactiq.processor.event.PaymentRequestedEvent;
+import com.transactiq.processor.fraud.Decision;
+import com.transactiq.processor.fraud.FraudDecider;
+import com.transactiq.processor.fraud.FraudDecision;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
@@ -43,10 +52,20 @@ class ReplayIdempotencyIT {
     @Autowired
     ObjectMapper objectMapper;
 
+    // Fraud-service is not running in tests — stub the decider so processing is deterministic.
+    @MockBean
+    FraudDecider fraudDecider;
+
     // Both are 36-char UUIDs — event_id is VARCHAR(36) (real event ids are UUIDs), so a longer
     // synthetic string would be silently truncated by INSERT IGNORE and break the assertion.
     private final String paymentId = UUID.randomUUID().toString();
     private final String eventId = UUID.randomUUID().toString();
+
+    @BeforeEach
+    void stubFraud() {
+        when(fraudDecider.decide(any())).thenReturn(
+                new FraudDecision(Decision.APPROVE, 0.0, List.of("stubbed approve")));
+    }
 
     @AfterEach
     void cleanup() {

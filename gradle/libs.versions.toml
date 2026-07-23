@@ -6,6 +6,8 @@ springBoot = "3.3.5"
 springDependencyManagement = "1.1.6"
 # Testcontainers is pulled in now so Phase 2's Kafka/MySQL/Redis integration tests have it ready.
 testcontainers = "1.20.4"
+# LangChain4j — fraud-service LLM triage (Phase 3). Core + Ollama integration share a version.
+langchain4j = "0.36.2"
 
 [libraries]
 # --- Spring Boot starters (versions managed by the Spring dependency-management plugin,
@@ -26,6 +28,10 @@ flyway-mysql = { module = "org.flywaydb:flyway-mysql" }
 
 # Micrometer -> Prometheus registry (exposes /actuator/prometheus).
 micrometer-registry-prometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
+
+# LangChain4j (fraud-service). AiServices + structured output + Ollama chat model.
+langchain4j = { module = "dev.langchain4j:langchain4j", version.ref = "langchain4j" }
+langchain4j-ollama = { module = "dev.langchain4j:langchain4j-ollama", version.ref = "langchain4j" }
 
 # Testcontainers (integration tests for the Kafka/MySQL/idempotency paths — Phase 2+).
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }

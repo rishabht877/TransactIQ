@@ -5,6 +5,18 @@ spring:
 server:
   port: 8082
 
+transactiq:
+  fraud:
+    llm:
+      # LLM triage layer. Default provider is Ollama (local, no API key). Set enabled=false to
+      # run on deterministic rules only (tests/CI, or if no model is available).
+      enabled: ${FRAUD_LLM_ENABLED:true}
+      provider: ${FRAUD_LLM_PROVIDER:ollama}
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      model: ${FRAUD_LLM_MODEL:llama3.2}
+      temperature: 0.0
+      timeout-seconds: 60
+
 management:
   endpoints:
     web:

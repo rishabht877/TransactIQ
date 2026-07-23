@@ -145,6 +145,28 @@ services:
     networks:
       - transactiq
 
+  # -------------------------------------------------------------------------
+  # Ollama — local LLM runtime for the fraud-service (Phase 3). Runs the model on CPU inside
+  # the container. The model itself is pulled after startup (see scripts/pull-ollama-model.sh
+  # or the README) so the image stays small and the pull is explicit.
+  # -------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:0.5.4
+    container_name: transactiq-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      # Ollama serves its API at /api/version once up (before any model is pulled).
+      test: ["CMD-SHELL", "ollama --version >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - transactiq
+
 networks:
   transactiq:
     driver: bridge
@@ -152,3 +174,4 @@ networks:
 volumes:
   mysql-data:
   grafana-data:
+  ollama-data:

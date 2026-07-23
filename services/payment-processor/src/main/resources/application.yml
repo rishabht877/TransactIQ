@@ -50,6 +50,11 @@ transactiq:
   outbox:
     poll-interval-ms: 500
     batch-size: 100
+  fraud:
+    service:
+      # fraud-service base URL. Fail-closed: if it is unreachable the event retries -> DLQ,
+      # never auto-approved.
+      url: ${FRAUD_SERVICE_URL:http://localhost:8082}
 
 management:
   endpoints:

@@ -85,6 +85,38 @@ curl -i -X POST localhost:8080/api/payments \
 curl -s localhost:8080/api/payments        # list payments and their statuses
 ```
 
+## Fraud triage (Phase 3)
+
+`fraud-service` is a **triage/explanation layer, not the sole detector**. It combines:
+
+1. **Deterministic rules** (the authoritative backbone, fully unit-tested) — velocity /
+   card-testing, geo mismatch / impossible travel, and amount anomaly, computed from an
+   in-memory per-customer activity window. These set a **severity floor**.
+2. **An LLM** (LangChain4j → **Ollama** `llama3.2` by default, no API key) that produces the
+   final `APPROVE | ESCALATE | BLOCK` call plus human-readable reasoning.
+
+Safety guards make a small local model trustworthy: the LLM can **escalate** above the rules
+but never approve away a rule-driven block (severity floor), and its decision must be
+**consistent with the risk score** (guards against erratic over-blocking). If the model is
+unreachable it falls back to the deterministic decision. Provider is swappable via
+`transactiq.fraud.llm.*` (set `enabled=false` to run rules-only).
+
+*Why an LLM for triage, not detection:* the rules catch the clear-cut fraud deterministically;
+the LLM adds nuanced judgement on ambiguous cases and, importantly, produces reviewer-friendly
+explanations — without being trusted as the sole gatekeeper.
+
+```bash
+scripts/pull-ollama-model.sh          # once, after `docker compose up` (pulls llama3.2, ~2GB)
+./gradlew :services:fraud-service:bootRun
+
+curl -s -X POST localhost:8082/api/fraud/evaluate -H 'Content-Type: application/json' \
+  -d '{"paymentId":"p1","amount":30000,"currency":"USD","customerId":"c1","country":"US"}'
+# -> {"decision":"BLOCK","riskScore":0.9,"reasons":[...]}
+```
+
+The processor calls fraud-service for every payment; `BLOCK`/`ESCALATE` route to
+`payments.blocked` (terminal `BLOCKED`), `APPROVE` to `payments.processed` (`PROCESSED`).
+
 ## Correctness model (the part interviewers probe)
 
 End-to-end guarantee: **effectively-once** — idempotent processing over Kafka's at-least-once
@@ -127,7 +159,7 @@ scripts/soak-test.sh 200                         # in another
 - **Phase 0** — scaffold + infra ✅
 - **Phase 1** — happy-path payment flow ✅
 - **Phase 2** — idempotency, transactional outbox, DLQ + retry ✅
-- **Phase 3** — LLM fraud triage (LangChain4j + Ollama)
+- **Phase 3** — LLM fraud triage (LangChain4j + Ollama) ✅
 - **Phase 4** — observability dashboards
 - **Phase 5** — React dashboard
 - **Phase 6** — Kubernetes + Helm (Minikube)

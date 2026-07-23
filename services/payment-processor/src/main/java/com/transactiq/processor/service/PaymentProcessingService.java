@@ -9,8 +9,8 @@ import com.transactiq.processor.domain.ProcessedEventRepository;
 import com.transactiq.processor.event.PaymentOutcomeEvent;
 import com.transactiq.processor.event.PaymentRequestedEvent;
 import com.transactiq.processor.fraud.Decision;
+import com.transactiq.processor.fraud.FraudDecider;
 import com.transactiq.processor.fraud.FraudDecision;
-import com.transactiq.processor.fraud.FraudStub;
 import com.transactiq.processor.outbox.OutboxEvent;
 import com.transactiq.processor.outbox.OutboxRepository;
 import java.util.UUID;
@@ -42,18 +42,18 @@ public class PaymentProcessingService {
     private final ProcessedEventRepository processedEventRepository;
     private final PaymentRepository paymentRepository;
     private final OutboxRepository outboxRepository;
-    private final FraudStub fraudStub;
+    private final FraudDecider fraudDecider;
     private final ObjectMapper objectMapper;
 
     public PaymentProcessingService(ProcessedEventRepository processedEventRepository,
                                     PaymentRepository paymentRepository,
                                     OutboxRepository outboxRepository,
-                                    FraudStub fraudStub,
+                                    FraudDecider fraudDecider,
                                     ObjectMapper objectMapper) {
         this.processedEventRepository = processedEventRepository;
         this.paymentRepository = paymentRepository;
         this.outboxRepository = outboxRepository;
-        this.fraudStub = fraudStub;
+        this.fraudDecider = fraudDecider;
         this.objectMapper = objectMapper;
     }
 
@@ -74,7 +74,7 @@ public class PaymentProcessingService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Payment not found for id=" + event.paymentId()));
 
-        FraudDecision decision = fraudStub.decide(event);
+        FraudDecision decision = fraudDecider.decide(event);
         boolean approved = decision.decision() == Decision.APPROVE;
         PaymentStatus terminal = approved ? PaymentStatus.PROCESSED : PaymentStatus.BLOCKED;
         payment.setStatus(terminal);
