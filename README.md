@@ -203,6 +203,20 @@ into per-bucket counts and derives p50/p95/p99 by the same linear interpolation
 > silently showing nothing. The volume and fraud charts work anywhere the gateway is
 > reachable.
 
+### Table (ag-grid)
+
+The payments table is **ag-grid** (community), which carries the sorting and per-column
+filtering the hand-rolled table could not. The point of it is the **fraud reasoning**
+column: the cell value is the flattened reason text, so column sort, the per-column filter
+and the search box all operate on the reasoning itself while the renderer still shows one
+reason per line. Searching `Impossible travel`, for example, narrows 100 rows to just the
+geo-rule blocks.
+
+Only the modules the grid uses are registered (client-side row model, text/number filters,
+quick filter, auto-height, tooltips) rather than `AllCommunityModule` — the same reasoning
+as the basic Plotly bundle. Rows are keyed by payment id so sort, filter and scroll position
+survive the 2s poll instead of resetting.
+
 A note on colour, since it is a correctness issue and not taste: the obvious palette for
 approved-vs-blocked is green/red, but that pair measures a CVD separation of ΔE 4.1 under
 deuteranopia — indistinguishable for red-green colourblind readers. The two series use a

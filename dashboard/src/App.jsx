@@ -38,6 +38,7 @@ export default function App() {
   const [windowId, setWindowId] = useState("1h");
   const [limit, setLimit] = useState(ROW_LIMITS[0]);
   const [timerId, setTimerId] = useState(TIMERS[0].id);
+  const [tableSearch, setTableSearch] = useState("");
 
   const [payments, setPayments] = useState([]);
   const [total, setTotal] = useState(0);
@@ -183,11 +184,28 @@ export default function App() {
       </section>
 
       <section className="card">
-        <h2>Payments</h2>
-        <p className="card-sub">
-          The table view — every value in the charts above is readable here, sortable and filterable.
-        </p>
-        <PaymentsTable payments={scoped} mode={mode} />
+        <div className="card-head">
+          <div>
+            <h2>Payments</h2>
+            <p className="card-sub">
+              The table view — every value plotted above is readable here, sortable and
+              filterable. Column headers sort; the row under each header filters.
+            </p>
+          </div>
+          {/*
+            This box scopes the grid only (not the charts), so it belongs with the grid
+            rather than in the dashboard filter row above.
+          */}
+          <input
+            className="search"
+            type="search"
+            value={tableSearch}
+            onChange={(e) => setTableSearch(e.target.value)}
+            placeholder="Search all columns, incl. reasoning…"
+            aria-label="Search payments"
+          />
+        </div>
+        <PaymentsTable payments={scoped} mode={mode} quickFilter={tableSearch} />
       </section>
     </div>
   );

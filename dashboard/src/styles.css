@@ -160,15 +160,21 @@ h2 { margin: 0; font-size: 1.05rem; color: var(--text-primary); }
   padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; font-size: 0.85rem;
 }
 
-/* ---- Fallback table (replaced by ag-grid) ---- */
-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
-th {
-  color: var(--muted); font-weight: 600; font-size: 0.7rem;
-  text-transform: uppercase; letter-spacing: 0.4px;
+/* ---- ag-grid host ---- */
+.grid-host { height: 560px; width: 100%; }
+.search {
+  font: inherit; font-size: 0.85rem; padding: 7px 10px; min-width: 280px;
+  color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 8px;
 }
-td { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.mono { font-family: ui-monospace, Menlo, monospace; }
-.badge { color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
-.reasons ul { margin: 0; padding-left: 16px; }
-.reasons li { color: var(--text-secondary); }
+
+/* Cell content. ag-grid owns layout; these only style what sits inside a cell. */
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem; }
+.num { font-variant-numeric: tabular-nums; }
+.badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.2px;
+}
+.reason-list { margin: 6px 0; padding-left: 15px; line-height: 1.45; }
+.reason-list li { color: var(--text-secondary); }
+.reason-none { color: var(--muted); }
