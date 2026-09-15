@@ -179,6 +179,36 @@ the UI can show *why* a payment was approved/blocked.
 cd dashboard && npm install && npm run dev   # http://localhost:5173 (gateway must be running)
 ```
 
+### Visualization (Plotly)
+
+Three charts, built with **Plotly** (the `plotly.js-basic-dist-min` bundle — ~1.1MB rather
+than the ~4.5MB full build; it ships the scatter + bar types these charts need):
+
+| Chart | Source | Reads |
+|-------|--------|-------|
+| Transaction volume over time | `createdAt` on each payment row | gateway REST |
+| Fraud triage → terminal status | `fraud_decision` + `status` (V3 columns) | gateway REST |
+| Latency distribution (histogram) | `*_seconds_bucket` series | **Prometheus HTTP API** |
+
+The volume and fraud charts read the paginated `GET /api/payments` the UI already polls. The
+latency panel is different: per-bucket counts only exist in Prometheus, so the browser queries
+`:9090/api/v1/query` directly — Prometheus 2.55 ships with CORS open (`--web.cors.origin`
+defaults to `.*`), so no backend proxy is needed. It differences the cumulative `le` buckets
+into per-bucket counts and derives p50/p95/p99 by the same linear interpolation
+`histogram_quantile` uses, so the tiles agree with the Grafana panels.
+
+> **The latency panel is docker-compose only.** Prometheus is *not* part of the Helm chart
+> (see [`deploy/helm/transactiq/templates/`](deploy/helm/transactiq/templates/)), so on
+> Kubernetes that card renders an explicit "cannot reach Prometheus" state rather than
+> silently showing nothing. The volume and fraud charts work anywhere the gateway is
+> reachable.
+
+A note on colour, since it is a correctness issue and not taste: the obvious palette for
+approved-vs-blocked is green/red, but that pair measures a CVD separation of ΔE 4.1 under
+deuteranopia — indistinguishable for red-green colourblind readers. The two series use a
+validated blue/orange pair instead (worst-case CVD ΔE 24.7), and the terminal status always
+appears as a word, never as colour alone.
+
 ## Observability (Phase 4)
 
 Micrometer → Prometheus → Grafana. Custom metrics on the processing path (on top of the

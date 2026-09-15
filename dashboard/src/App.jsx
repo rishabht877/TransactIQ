@@ -1,71 +1,92 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { GATEWAY, fetchPayments, submitPayment } from "./api.js";
+import FraudBreakdownChart from "./charts/FraudBreakdownChart.jsx";
+import LatencyHistogram, { TIMERS } from "./charts/LatencyHistogram.jsx";
+import VolumeChart from "./charts/VolumeChart.jsx";
+import PaymentsTable from "./PaymentsTable.jsx";
+import { useTheme } from "./useTheme.js";
 
-const GATEWAY = import.meta.env.VITE_GATEWAY_URL || "http://localhost:8080";
 const GRAFANA = import.meta.env.VITE_GRAFANA_URL || "http://localhost:3000";
 
-const STATUS_COLOR = {
-  RECEIVED: "#b58900",
-  PROCESSED: "#2aa198",
-  BLOCKED: "#dc322f",
-};
+// `promWindow` is the PromQL range for the latency panel. "All" has no bounded equivalent
+// there, so it falls back to 1h rather than silently querying something else.
+const WINDOWS = [
+  { id: "5m", label: "5 min", ms: 5 * 60e3, promWindow: "5m" },
+  { id: "1h", label: "1 hour", ms: 60 * 60e3, promWindow: "1h" },
+  { id: "24h", label: "24 hours", ms: 24 * 60 * 60e3, promWindow: "24h" },
+  { id: "all", label: "All loaded", ms: null, promWindow: "1h" },
+];
 
-function parseReasons(raw) {
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return [raw];
-  }
+const ROW_LIMITS = [100, 500, 1000];
+
+function ThemeToggle({ mode }) {
+  const flip = () => {
+    const next = mode === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("transactiq-theme", next);
+  };
+  return (
+    <button className="ghost" onClick={flip} aria-label="Toggle colour scheme">
+      {mode === "dark" ? "Light" : "Dark"} mode
+    </button>
+  );
 }
 
 export default function App() {
+  const { mode, t } = useTheme();
+
+  const [windowId, setWindowId] = useState("1h");
+  const [limit, setLimit] = useState(ROW_LIMITS[0]);
+  const [timerId, setTimerId] = useState(TIMERS[0].id);
+
   const [payments, setPayments] = useState([]);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState(null);
+
   const [form, setForm] = useState({
-    amount: "49.99",
-    currency: "USD",
-    customerId: "cust-1",
-    cardLast4: "4242",
-    country: "US",
-    merchant: "Acme",
+    amount: "49.99", currency: "USD", customerId: "cust-1",
+    cardLast4: "4242", country: "US", merchant: "Acme",
   });
   const [submitting, setSubmitting] = useState(false);
 
-  async function refresh() {
+  const activeWindow = WINDOWS.find((w) => w.id === windowId) || WINDOWS[1];
+
+  const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${GATEWAY}/api/payments`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      // newest first
-      data.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-      setPayments(data);
+      const { rows, total: count } = await fetchPayments(limit);
+      setPayments(rows);
+      setTotal(count);
       setError(null);
     } catch (e) {
+      // Keep the last good render on screen and explain it, rather than blanking the charts.
       setError(`Cannot reach gateway at ${GATEWAY} (${e.message})`);
     }
-  }
+  }, [limit]);
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 2000); // live-ish polling
-    return () => clearInterval(t);
-  }, []);
+    const id = setInterval(refresh, 2000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  // One window filter scoping every chart, applied to the newest `limit` rows the API returned.
+  const scoped = useMemo(() => {
+    if (activeWindow.ms == null) return payments;
+    const floor = Date.now() - activeWindow.ms;
+    return payments.filter((p) => {
+      const ms = Date.parse(p.createdAt);
+      return Number.isNaN(ms) ? true : ms >= floor;
+    });
+  }, [payments, activeWindow]);
 
   async function submit(e) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await fetch(`${GATEWAY}/api/payments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({ ...form, amount: Number(form.amount) }),
-      });
+      await submitPayment({ ...form, amount: Number(form.amount) });
       await refresh();
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -77,13 +98,72 @@ export default function App() {
   });
 
   return (
-    <div className="wrap">
+    <div className="wrap viz-root">
       <header>
         <h1>TransactIQ</h1>
-        <a className="grafana" href={GRAFANA} target="_blank" rel="noreferrer">
-          Metrics (Grafana) ↗
-        </a>
+        <div className="header-actions">
+          <ThemeToggle mode={mode} />
+          <a className="ghost" href={GRAFANA} target="_blank" rel="noreferrer">Grafana ↗</a>
+        </div>
       </header>
+
+      {/* One filter row above everything it scopes — never a filter inside a chart card. */}
+      <div className="filters" role="group" aria-label="Dashboard filters">
+        <label>
+          Window
+          <select value={windowId} onChange={(e) => setWindowId(e.target.value)}>
+            {WINDOWS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+          </select>
+        </label>
+        <label>
+          Rows loaded
+          <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
+            {ROW_LIMITS.map((n) => <option key={n} value={n}>newest {n}</option>)}
+          </select>
+        </label>
+        <span className="filter-note">
+          Showing {scoped.length.toLocaleString()} of {payments.length.toLocaleString()} loaded
+          {total > payments.length && <> · {total.toLocaleString()} in the table</>}
+        </span>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      <div className="grid">
+        <section className="card">
+          <h2>Transaction volume</h2>
+          <p className="card-sub">Payments accepted over time, from each row's createdAt.</p>
+          <VolumeChart payments={scoped} t={t} />
+        </section>
+
+        <section className="card">
+          <h2>Fraud triage → outcome</h2>
+          <p className="card-sub">Which triage decision produced which terminal status.</p>
+          <FraudBreakdownChart payments={scoped} t={t} />
+        </section>
+
+        <section className="card wide">
+          <div className="card-head">
+            <div>
+              <h2>Latency distribution</h2>
+              <p className="card-sub">Prometheus histogram buckets, differenced into bins.</p>
+            </div>
+            <div className="segmented" role="group" aria-label="Timer">
+              {TIMERS.map((timer) => (
+                <button
+                  key={timer.id}
+                  className={timer.id === timerId ? "on" : ""}
+                  aria-pressed={timer.id === timerId}
+                  onClick={() => setTimerId(timer.id)}
+                >
+                  {timer.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <LatencyHistogram promWindow={activeWindow.promWindow} timerId={timerId} t={t} />
+        </section>
+      </div>
 
       <section className="card">
         <h2>Submit a payment</h2>
@@ -102,36 +182,12 @@ export default function App() {
         </p>
       </section>
 
-      {error && <div className="error">{error}</div>}
-
       <section className="card">
-        <h2>Payments (live)</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th><th>Amount</th><th>Customer</th><th>Status</th>
-              <th>Fraud</th><th>Risk</th><th>Reasoning</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map((p) => (
-              <tr key={p.id}>
-                <td className="mono">{p.id.slice(0, 8)}</td>
-                <td>{p.amount} {p.currency}</td>
-                <td>{p.customerId}</td>
-                <td><span className="badge" style={{ background: STATUS_COLOR[p.status] || "#657b83" }}>{p.status}</span></td>
-                <td>{p.fraudDecision || "—"}</td>
-                <td>{p.riskScore != null ? Number(p.riskScore).toFixed(2) : "—"}</td>
-                <td className="reasons">
-                  <ul>{parseReasons(p.fraudReasons).map((r, i) => <li key={i}>{r}</li>)}</ul>
-                </td>
-              </tr>
-            ))}
-            {payments.length === 0 && (
-              <tr><td colSpan={7} className="empty">No payments yet — submit one above.</td></tr>
-            )}
-          </tbody>
-        </table>
+        <h2>Payments</h2>
+        <p className="card-sub">
+          The table view — every value in the charts above is readable here, sortable and filterable.
+        </p>
+        <PaymentsTable payments={scoped} mode={mode} />
       </section>
     </div>
   );

@@ -1,28 +1,174 @@
+/*
+ * Palette roles from the validated default palette. Values are declared under BOTH the
+ * media query and the data-theme scope: the media query covers the OS setting, the
+ * data-theme scope covers the in-app toggle, and the :not() guard lets an explicit light
+ * stamp beat OS-dark. Keep in sync with src/theme.js, which carries the same hexes for
+ * Plotly (which cannot resolve CSS custom properties).
+ */
+.viz-root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --gridline: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --critical: #d03b3b;
+  --warning: #fab219;
+  --good: #0ca30c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --gridline: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+  }
+}
+
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --muted: #898781;
+  --gridline: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+}
+
+/* The page plane has to follow the theme too, and body sits outside .viz-root. */
+body {
+  margin: 0;
+  background: #f9f9f7;
+  color: #0b0b0b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) body { background: #0d0d0d; color: #fff; }
+}
+:root[data-theme="dark"] body { background: #0d0d0d; color: #fff; }
+
 :root {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color: #1c1e21;
-  background: #f5f6f8;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
-body { margin: 0; }
-.wrap { max-width: 1100px; margin: 0 auto; padding: 24px; }
-header { display: flex; align-items: baseline; justify-content: space-between; }
-h1 { margin: 0 0 16px; letter-spacing: -0.5px; }
-h2 { margin: 0 0 12px; font-size: 1.05rem; }
-.grafana { color: #268bd2; text-decoration: none; font-weight: 600; }
-.card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding: 24px; color: var(--text-primary); }
+
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+h1 { margin: 0 0 16px; letter-spacing: -0.5px; font-size: 1.5rem; }
+h2 { margin: 0; font-size: 1.05rem; color: var(--text-primary); }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+
+.ghost {
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 0.82rem;
+  font-weight: 600; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
+  cursor: pointer; text-decoration: none;
+}
+.ghost:hover { background: var(--surface-1); color: var(--text-primary); }
+
+/* ---- Filter row: one row above every chart it scopes ---- */
+.filters {
+  display: flex; align-items: end; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 18px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+}
+.filters label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted);
+  font-weight: 600;
+}
+.filters select {
+  font: inherit; font-size: 0.86rem; padding: 6px 8px; min-width: 130px;
+  color: var(--text-primary); background: var(--surface-1);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.filter-note { font-size: 0.78rem; color: var(--muted); margin-left: auto; padding-bottom: 6px; }
+
+/* ---- Cards & grid ---- */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+.grid .wide { grid-column: 1 / -1; }
+@media (max-width: 880px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px; margin-bottom: 18px;
+}
+.grid .card { margin-bottom: 0; }
+.card-head { display: flex; align-items: start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.card-sub { margin: 4px 0 14px; font-size: 0.8rem; color: var(--text-secondary); }
+.chart-note { margin: 10px 0 0; font-size: 0.75rem; color: var(--muted); line-height: 1.5; }
+.chart-empty {
+  margin: 0; padding: 40px 12px; text-align: center;
+  font-size: 0.85rem; color: var(--muted);
+}
+.chart-empty p { margin: 0 0 6px; }
+
+/* ---- Segmented control (which timer the latency panel reads) ---- */
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.segmented button {
+  font: inherit; font-size: 0.78rem; font-weight: 600; padding: 6px 12px; cursor: pointer;
+  background: transparent; color: var(--text-secondary); border: 0;
+}
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button.on { background: var(--series-1); color: #fff; }
+
+/* ---- Stat tiles ---- */
+.tiles { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 8px; }
+.tile { display: flex; flex-direction: column; gap: 2px; }
+.tile-label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--muted); font-weight: 600;
+}
+/* Proportional figures on standalone values — tabular-nums makes them look loose here. */
+.tile-value { font-size: 1.35rem; font-weight: 600; color: var(--text-primary); }
+
+/* ---- Submit form ---- */
 .form { display: grid; grid-template-columns: repeat(6, 1fr) auto; gap: 12px; align-items: end; }
-.form label { display: flex; flex-direction: column; font-size: 0.75rem; color: #555; gap: 4px; }
-.form input { padding: 8px; border: 1px solid #ccd2d8; border-radius: 6px; font-size: 0.9rem; }
-.form button { padding: 9px 18px; background: #268bd2; color: #fff; border: 0; border-radius: 6px; font-weight: 600; cursor: pointer; }
+@media (max-width: 880px) { .form { grid-template-columns: repeat(2, 1fr); } }
+.form label { display: flex; flex-direction: column; font-size: 0.72rem; color: var(--muted); gap: 4px; font-weight: 600; }
+.form input {
+  padding: 8px; font: inherit; font-size: 0.88rem; color: var(--text-primary);
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px;
+}
+.form button {
+  padding: 9px 18px; background: var(--series-1); color: #fff; border: 0; border-radius: 6px;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
 .form button:disabled { opacity: 0.6; cursor: default; }
-.hint { color: #7a8288; font-size: 0.8rem; margin: 10px 0 0; }
-.error { background: #ffe0dd; color: #a3251b; padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; }
+.hint { color: var(--muted); font-size: 0.78rem; margin: 12px 0 0; }
+
+.error {
+  background: color-mix(in srgb, var(--critical) 14%, var(--surface-1));
+  color: var(--critical); border: 1px solid color-mix(in srgb, var(--critical) 35%, transparent);
+  padding: 10px 14px; border-radius: 8px; margin-bottom: 18px; font-size: 0.85rem;
+}
+
+/* ---- Fallback table (replaced by ag-grid) ---- */
 table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eef0f2; vertical-align: top; }
-th { color: #7a8288; font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.4px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
+th {
+  color: var(--muted); font-weight: 600; font-size: 0.7rem;
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+td { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .mono { font-family: ui-monospace, Menlo, monospace; }
-.badge { color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+.badge { color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
 .reasons ul { margin: 0; padding-left: 16px; }
-.reasons li { color: #4a4f54; }
-.empty { text-align: center; color: #9aa0a6; padding: 24px; }
+.reasons li { color: var(--text-secondary); }
