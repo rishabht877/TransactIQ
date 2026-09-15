@@ -41,7 +41,7 @@ export default function FraudBreakdownChart({ payments, t }) {
   if (triaged === 0) {
     return (
       <p className="chart-empty">
-        No triaged payments yet{untriaged > 0 ? ` — ${untriaged} still in flight.` : "."}
+        No triaged payments yet{untriaged > 0 ? ` — ${untriaged} not triaged.` : "."}
       </p>
     );
   }
@@ -86,7 +86,7 @@ export default function FraudBreakdownChart({ payments, t }) {
       />
       <p className="chart-note">
         {triaged.toLocaleString()} triaged
-        {untriaged > 0 && <> · {untriaged.toLocaleString()} still in flight (no decision yet)</>}
+        {untriaged > 0 && <> · {untriaged.toLocaleString()} not triaged (no decision on the row)</>}
         . ESCALATE and BLOCK both terminate as BLOCKED — only APPROVE reaches PROCESSED.
       </p>
     </div>

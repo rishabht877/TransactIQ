@@ -141,7 +141,7 @@ export default function PaymentsTable({ payments, mode, quickFilter }) {
         : `${p.value.toLocaleString(undefined, { minimumFractionDigits: 2 })} ${p.data.currency || ""}`.trim()),
       cellClass: "num",
     },
-    { headerName: "Customer", field: "customerId", width: 105, filter: "agTextColumnFilter" },
+    { headerName: "Customer", field: "customerId", width: 120, filter: "agTextColumnFilter" },
     { headerName: "Country", field: "country", width: 90, filter: "agTextColumnFilter" },
     {
       headerName: "Status",

@@ -17,7 +17,11 @@ const WINDOWS = [
   { id: "all", label: "All loaded", ms: null, promWindow: "1h" },
 ];
 
+// Defaults to 500, not 100: the gateway accepts ~600/s, so the newest 100 rows can span
+// under a second and the volume chart degenerates into a single spike. Still bounded — the
+// point of paginating was to stop the poll dragging the whole table.
 const ROW_LIMITS = [100, 500, 1000];
+const DEFAULT_LIMIT = 500;
 
 function ThemeToggle({ mode }) {
   const flip = () => {
@@ -36,7 +40,7 @@ export default function App() {
   const { mode, t } = useTheme();
 
   const [windowId, setWindowId] = useState("1h");
-  const [limit, setLimit] = useState(ROW_LIMITS[0]);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [timerId, setTimerId] = useState(TIMERS[0].id);
   const [tableSearch, setTableSearch] = useState("");
 
