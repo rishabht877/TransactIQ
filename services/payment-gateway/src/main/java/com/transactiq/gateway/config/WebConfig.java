@@ -22,6 +22,9 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
                 .allowedOrigins(allowedOrigins)
-                .allowedMethods("GET", "POST");
+                .allowedMethods("GET", "POST")
+                // Pagination total from GET /api/payments — a browser cannot read a custom
+                // response header unless it is explicitly exposed.
+                .exposedHeaders("X-Total-Count");
     }
 }

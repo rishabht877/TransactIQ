@@ -119,7 +119,10 @@ curl -i -X POST localhost:8080/api/payments \
   -d '{"amount":49.99,"currency":"USD","customerId":"cust-1","cardLast4":"4242","country":"US","merchant":"Acme"}'
 # -> 202 Accepted {"paymentId":"...","status":"RECEIVED"}, becomes PROCESSED asynchronously.
 
-curl -s localhost:8080/api/payments        # list payments and their statuses
+# List payments, newest first. Paginated: `limit` (default 100, max 1000) and zero-based
+# `page`. The total row count comes back in the X-Total-Count response header.
+curl -s localhost:8080/api/payments                    # newest 100
+curl -si localhost:8080/api/payments?limit=20\&page=1  # rows 21-40 + X-Total-Count
 ```
 
 ## Fraud triage (Phase 3)
