@@ -3,10 +3,13 @@ package com.transactiq.fraud.config;
 import com.transactiq.fraud.triage.FraudReasoner;
 import com.transactiq.fraud.triage.RuleBasedReasoner;
 import com.transactiq.fraud.triage.llm.FraudAssistant;
+import com.transactiq.fraud.triage.llm.LlmCircuitBreaker;
 import com.transactiq.fraud.triage.llm.LlmFraudReasoner;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.ollama.OllamaChatModel;
 import dev.langchain4j.service.AiServices;
+import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,11 +69,27 @@ public class LlmConfig {
                 .build();
     }
 
+    /**
+     * Stops calling the model after repeated failures, so a dead model costs one timeout per
+     * threshold-and-cooldown window instead of one timeout per payment. A threshold of 0 disables it.
+     */
     @Bean
     @ConditionalOnProperty(prefix = "transactiq.fraud.llm", name = "enabled", havingValue = "true")
-    public FraudReasoner llmFraudReasoner(FraudAssistant assistant) {
-        // Deterministic rules are the fallback if the model is unreachable/unusable.
-        return new LlmFraudReasoner(assistant, new RuleBasedReasoner());
+    public LlmCircuitBreaker llmCircuitBreaker(
+            @Value("${transactiq.fraud.llm.circuit-breaker.failure-threshold:3}") int failureThreshold,
+            @Value("${transactiq.fraud.llm.circuit-breaker.cooldown-seconds:30}") long cooldownSeconds,
+            Clock clock,
+            MeterRegistry meterRegistry) {
+        log.info("Fraud LLM circuit breaker: opens after {} consecutive failures, {}s cooldown",
+                failureThreshold, cooldownSeconds);
+        return new LlmCircuitBreaker(failureThreshold, Duration.ofSeconds(cooldownSeconds), clock, meterRegistry);
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "transactiq.fraud.llm", name = "enabled", havingValue = "true")
+    public FraudReasoner llmFraudReasoner(FraudAssistant assistant, LlmCircuitBreaker circuitBreaker) {
+        // Deterministic rules are the fallback if the model is unreachable/unusable/skipped.
+        return new LlmFraudReasoner(assistant, new RuleBasedReasoner(), circuitBreaker);
     }
 
     /** Used when the LLM is disabled — deterministic, no external dependency. */
