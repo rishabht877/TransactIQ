@@ -33,6 +33,14 @@ spring:
       # Spring commits offsets after the listener returns successfully (no auto-commit), which —
       # combined with the Phase 2 idempotent consumer — gives effectively-once processing.
       enable-auto-commit: false
+      # Each record makes a synchronous fraud call that can take 15-20s with the LLM on (up to the
+      # 90s read timeout). With the Kafka defaults (500 records, 300s) a backlog of 25 payments is
+      # one 400s batch, the broker decides the consumer is dead, revokes its partition and the
+      # records get redelivered (observed). Keep records x worst-case-per-record under the interval:
+      # 5 x 90s = 450s < 600s.
+      max-poll-records: ${KAFKA_MAX_POLL_RECORDS:5}
+      properties:
+        max.poll.interval.ms: ${KAFKA_MAX_POLL_INTERVAL_MS:600000}
     producer:
       # Used by the Phase 2 outbox relay for output events (PaymentProcessed / PaymentBlocked).
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
