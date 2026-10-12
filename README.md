@@ -135,15 +135,29 @@ curl -si localhost:8080/api/payments?limit=20\&page=1  # rows 21-40 + X-Total-Co
 2. **An LLM** (LangChain4j → **Ollama** `llama3.2` by default, no API key) that produces the
    final `APPROVE | ESCALATE | BLOCK` call plus human-readable reasoning.
 
-Safety guards make a small local model trustworthy: the LLM can **escalate** above the rules
-but never approve away a rule-driven block (severity floor), and its decision must be
-**consistent with the risk score** (guards against erratic over-blocking). If the model is
-unreachable it falls back to the deterministic decision. Provider is swappable via
+Safety guards bound a small local model: the LLM can **escalate** above the rules but never
+approve away a rule-driven block (severity floor), and its decision can't be **more severe than
+its own risk score justifies** (guards against erratic over-blocking, e.g. a BLOCK reported with a
+risk of 0.02). The reverse is *not* enforced: a model that reports a high risk score but says
+APPROVE is not raised (pinned in `LlmFraudReasonerGuardTest`). If the model is unreachable, times
+out or returns something unusable, it falls back to the deterministic decision; a hung model is
+cut off after a single `timeout-seconds` (60s) attempt. Provider is swappable via
 `transactiq.fraud.llm.*` (set `enabled=false` to run rules-only).
 
 *Why an LLM for triage, not detection:* the rules catch the clear-cut fraud deterministically;
-the LLM adds nuanced judgement on ambiguous cases and, importantly, produces reviewer-friendly
-explanations — without being trusted as the sole gatekeeper.
+the LLM was added for judgement on cases the rules don't cover and for reviewer-friendly
+explanations, without being trusted as the sole gatekeeper.
+
+**What measuring it showed** (llama3.2 on CPU, small samples, no fraud labels):
+- With the current prompt, which includes the rules' recommendation and risk score, the model
+  changed **0 of 10** decisions on payments the rules had cleared. It echoes the rules' score
+  (rules 0.00 gives ~0.05, rules 0.50 gives ~0.65).
+- A blind prompt (transaction only) in a 6-case A/B produced a real spread of scores and would
+  have changed 3 of 6 outcomes. That points at the prompt rather than the model, but it is 6
+  cases with no ground truth: it shows the model differentiates, not that it is right. The prompt
+  has not been changed.
+- The explanations are model-generated and not reliable. It repeatedly flags card 4242, the
+  standard test card, as high risk.
 
 ```bash
 scripts/pull-ollama-model.sh          # once, after `docker compose up` (pulls llama3.2, ~2GB)
@@ -247,8 +261,12 @@ for i in $(seq 1 60); do curl -s -o /dev/null -X POST localhost:8080/api/payment
 ```
 Open Grafana → http://localhost:3000 (admin/admin) → **TransactIQ — Overview**.
 
-> Note: with the LLM enabled, fraud triage (Ollama on CPU) is the throughput bottleneck — a
-> good talking point. Set `FRAUD_LLM_ENABLED=false` for a rules-only, high-throughput run.
+> Note: with the LLM enabled, fraud triage (Ollama on CPU) is the throughput bottleneck.
+> Measured: about 15-20s per payment, processed one at a time, against ~90+/s rules-only. Set
+> `FRAUD_LLM_ENABLED=false` for a rules-only, high-throughput run. The slow path is bounded in
+> config: `transactiq.fraud.llm.max-retries` (1) and `timeout-seconds` (60) in fraud-service;
+> connect/read timeouts (3s/90s) and `max-poll-records` / `max.poll.interval.ms` (5 / 600000) in
+> payment-processor.
 
 ## Correctness model (the part interviewers probe)
 
@@ -286,6 +304,11 @@ scripts/soak-test.sh 200                         # in another
 - `ReplayIdempotencyIT` — the same event delivered 3× produces exactly one business effect.
 - `IdempotencyIT` — the same Idempotency-Key posted twice returns one payment / one outbox row.
 - `soak-test.sh` — crash-recovery: **zero loss, zero duplicates** across a processor SIGKILL.
+- `LlmFraudReasonerGuardTest`: the guards around the LLM, with a fake model and the real
+  reconcile logic: a 90-combination sweep (rule floor x model decision x risk) plus named cases
+  for the floor, the risk guard, clamping and the fallback paths. No Docker needed.
+- `RemoteFraudDeciderTimeoutTest`: the processor's call to fraud-service is cut off by its read
+  timeout (a local server that never answers). No Docker needed.
 
 ## Phased build plan
 
