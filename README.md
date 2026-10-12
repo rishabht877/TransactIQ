@@ -141,8 +141,12 @@ its own risk score justifies** (guards against erratic over-blocking, e.g. a BLO
 risk of 0.02). The reverse is *not* enforced: a model that reports a high risk score but says
 APPROVE is not raised (pinned in `LlmFraudReasonerGuardTest`). If the model is unreachable, times
 out or returns something unusable, it falls back to the deterministic decision; a hung model is
-cut off after a single `timeout-seconds` (60s) attempt. Provider is swappable via
-`transactiq.fraud.llm.*` (set `enabled=false` to run rules-only).
+cut off after a single `timeout-seconds` (60s) attempt. After 3 consecutive failures a circuit
+breaker stops calling the model for 30s: the rules decide immediately and the row says the breaker
+was open. It then lets one trial call through, and a success closes it while a failure reopens it.
+The breaker only protects the calls after it opens: the three that trip it, and each trial call,
+still wait out the full timeout. Its state is in memory per fraud-service instance. Provider is
+swappable via `transactiq.fraud.llm.*` (set `enabled=false` to run rules-only).
 
 *Why an LLM for triage, not detection:* the rules catch the clear-cut fraud deterministically;
 the LLM was added for judgement on cases the rules don't cover and for reviewer-friendly
@@ -247,6 +251,8 @@ auto-exported JVM / HTTP / Kafka-client metrics):
   percentile-histogram buckets (→ p99 via `histogram_quantile`)
 - `transactiq_payments_processed_total{status}` — PROCESSED vs BLOCKED
 - `transactiq_events_duplicate_total`, `transactiq_events_dlq_total`
+- `transactiq_llm_circuit_state` (0 closed, 1 open, 2 half-open) and
+  `transactiq_llm_circuit_skipped_total`: LLM circuit breaker (fraud-service)
 - `kafka_consumer_fetch_manager_records_lag_max` — consumer lag (auto)
 
 A **provisioned Grafana dashboard** ("TransactIQ — Overview") charts throughput, p50/p99
@@ -264,7 +270,8 @@ Open Grafana → http://localhost:3000 (admin/admin) → **TransactIQ — Overvi
 > Note: with the LLM enabled, fraud triage (Ollama on CPU) is the throughput bottleneck.
 > Measured: about 15-20s per payment, processed one at a time, against ~90+/s rules-only. Set
 > `FRAUD_LLM_ENABLED=false` for a rules-only, high-throughput run. The slow path is bounded in
-> config: `transactiq.fraud.llm.max-retries` (1) and `timeout-seconds` (60) in fraud-service;
+> config: `transactiq.fraud.llm.max-retries` (1), `timeout-seconds` (60) and
+> `circuit-breaker.failure-threshold` (3) / `cooldown-seconds` (30) in fraud-service;
 > connect/read timeouts (3s/90s) and `max-poll-records` / `max.poll.interval.ms` (5 / 600000) in
 > payment-processor.
 
@@ -309,6 +316,11 @@ scripts/soak-test.sh 200                         # in another
   for the floor, the risk guard, clamping and the fallback paths. No Docker needed.
 - `RemoteFraudDeciderTimeoutTest`: the processor's call to fraud-service is cut off by its read
   timeout (a local server that never answers). No Docker needed.
+- `LlmCircuitBreakerTest`, `LlmFraudReasonerCircuitBreakerTest`: the breaker's state machine
+  (closed, open, half-open, trial success and failure) and how the reasoner uses it, with a
+  hand-moved clock so nothing sleeps. `LlmCircuitBreakerHungModelTest` points the real Ollama
+  client at a server that never answers: three calls wait out the timeout, then the rules answer
+  instantly and the model is left alone. No Docker needed.
 
 ## Phased build plan
 
