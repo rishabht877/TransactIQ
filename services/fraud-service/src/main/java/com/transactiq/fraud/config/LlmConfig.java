@@ -37,7 +37,8 @@ public class LlmConfig {
             @Value("${transactiq.fraud.llm.base-url:http://localhost:11434}") String baseUrl,
             @Value("${transactiq.fraud.llm.model:llama3.2}") String model,
             @Value("${transactiq.fraud.llm.temperature:0.0}") double temperature,
-            @Value("${transactiq.fraud.llm.timeout-seconds:60}") long timeoutSeconds) {
+            @Value("${transactiq.fraud.llm.timeout-seconds:60}") long timeoutSeconds,
+            @Value("${transactiq.fraud.llm.max-retries:1}") int maxRetries) {
         if (!"ollama".equalsIgnoreCase(provider)) {
             throw new IllegalArgumentException(
                     "Unsupported LLM provider '" + provider + "'. Add its LangChain4j module and "
@@ -49,6 +50,10 @@ public class LlmConfig {
                 .modelName(model)
                 .temperature(temperature)
                 .timeout(Duration.ofSeconds(timeoutSeconds))
+                // This is total ATTEMPTS, not extra retries, and the client default is 3. At 3 a hung
+                // model stalls a payment for 3x the timeout (measured: ~180s on a 60s setting), so
+                // timeout-seconds only bounds the call when this is 1.
+                .maxRetries(maxRetries)
                 .format("json")   // ask Ollama for JSON so LangChain4j can parse the structured verdict
                 .build();
     }

@@ -16,6 +16,8 @@ transactiq:
       model: ${FRAUD_LLM_MODEL:llama3.2}
       temperature: 0.0
       timeout-seconds: 60
+      # Total attempts per call. Keep at 1 so timeout-seconds is the real worst case (see LlmConfig).
+      max-retries: ${FRAUD_LLM_MAX_RETRIES:1}
 
 management:
   endpoints:
