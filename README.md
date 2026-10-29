@@ -9,34 +9,32 @@ LLM-based fraud triage layer, and full observability.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     client([Client]) -->|"POST /api/payments<br/>Idempotency-Key"| gw
 
-    subgraph gwsub [payment-gateway]
-        gw[REST API] --> redis[(Redis<br/>idempotency)]
-        gw --> db1[(MySQL: payments + outbox<br/>one transaction)]
-        relay1[Outbox relay] -.polls.-> db1
+    subgraph gwsub ["payment-gateway"]
+        gw["REST API"] --> redis[("Redis<br/>idempotency fast path")]
+        gw --> db1[("MySQL: payment + outbox row<br/>one transaction, UNIQUE key")]
+        relay1["Outbox relay"] -.polls.-> db1
     end
 
-    relay1 -->|PaymentRequested| req{{payments.requested}}
-
+    relay1 -->|PaymentRequested| req{{"payments.requested"}}
     req --> proc
-    subgraph procsub [payment-processor]
-        proc[Idempotent consumer<br/>processed_events claim] --> db2[(MySQL: status + outbox)]
-        proc -->|"@RetryableTopic"| dlq{{...-retry / ...-dlt}}
-        relay2[Outbox relay] -.polls.-> db2
+
+    subgraph procsub ["payment-processor"]
+        proc["Idempotent consumer<br/>claims the event id in processed_events"] --> db2[("MySQL: status, fraud result<br/>+ outbox row")]
+        relay2["Outbox relay"] -.polls.-> db2
     end
 
-    proc -->|evaluate| fraud
-    subgraph fraudsub [fraud-service]
-        fraud[Rules engine<br/>velocity/geo/amount] --> llm[LangChain4j → Ollama LLM]
-    end
+    proc -->|"asks for a decision<br/>HTTP, 3s connect, 90s read"| fraud["fraud-service<br/>rules + guarded LLM<br/>circuit breaker, rules fallback"]
+    proc -->|"any failure, including fraud-service down:<br/>retry topics, then the dead-letter topic"| dlq{{"payments.requested-retry-0/1/2<br/>payments.requested-dlt"}}
 
-    relay2 -->|PaymentProcessed| done{{payments.processed}}
-    relay2 -->|PaymentBlocked| blocked{{payments.blocked}}
+    relay2 -->|"APPROVE: PaymentProcessed"| done{{"payments.processed"}}
+    relay2 -->|"BLOCK or ESCALATE: PaymentBlocked"| blocked{{"payments.blocked"}}
 
-    gw & proc & fraud -.->|/actuator/prometheus| prom[(Prometheus)] --> graf[Grafana]
-    dash([React dashboard]) -->|poll| gw
+    prom[("Prometheus<br/>scrapes all three services")] --> graf["Grafana"]
+    dash(["React dashboard"]) -->|"polls every 2s"| gw
+    dash -.->|"latency histogram<br/>(docker-compose only)"| prom
 ```
 
 **Guarantee:** *effectively-once* — idempotent processing over Kafka's at-least-once delivery.
