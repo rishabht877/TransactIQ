@@ -26,7 +26,7 @@ flowchart TB
         relay2["Outbox relay"] -.polls.-> db2
     end
 
-    proc -->|"asks for a decision<br/>HTTP, 3s connect, 90s read"| fraud["fraud-service<br/>rules + guarded LLM<br/>circuit breaker, rules fallback"]
+    proc -->|"asks for a decision<br/>HTTP, 3s connect, 90s read"| fraud["fraud-service<br/>rules + guarded LLM<br/>circuit breaker, rules fallback<br/>(detail below)"]
     proc -->|"any failure, including fraud-service down:<br/>retry topics, then the dead-letter topic"| dlq{{"payments.requested-retry-0/1/2<br/>payments.requested-dlt"}}
 
     relay2 -->|"APPROVE: PaymentProcessed"| done{{"payments.processed"}}
@@ -41,6 +41,46 @@ flowchart TB
 See [Correctness model](#correctness-model-the-part-interviewers-probe) and
 [Fraud triage](#fraud-triage-phase-3) for the honest *not-exactly-once* and *why-an-LLM*
 rationale.
+
+### Inside fraud-service
+
+The rules always run first and set a severity floor. The model sits behind a circuit breaker and
+a set of guards in code, and anything that goes wrong falls back to the rules' own decision.
+
+```mermaid
+flowchart TD
+    req(["Evaluate request"]) --> rules["Rules engine<br/>velocity, geo, amount<br/>gives a severity floor and a rule risk score"]
+    rules --> breaker{"Circuit breaker"}
+
+    breaker -->|"open: the model is not called"| fallback
+    breaker -->|"closed, or the single trial call"| llm["LLM call<br/>60s timeout, 1 attempt"]
+
+    llm -->|"timeout, error or unusable answer<br/>(counts as a failure)"| fallback["Fallback: the rules' decision<br/>row says LLM triage not applied<br/>and, if skipped, that the circuit was open"]
+    llm -->|"a usable verdict<br/>(counts as a success)"| reconcile["Guards in code<br/>risk = the higher of rule risk and model risk<br/>never less severe than the rule floor<br/>never more severe than the risk justifies:<br/>0.4 and up escalate, 0.8 and up block"]
+
+    reconcile --> out
+    fallback --> out(["Decision, risk score, reasons<br/>APPROVE, ESCALATE or BLOCK"])
+```
+
+### Circuit breaker
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Closed: calls reach the model" as Closed
+    state "Open: model skipped, rules answer at once" as Open
+    state "Half-open: one trial call" as HalfOpen
+    [*] --> Closed
+    Closed --> Open: 3 failures in a row
+    Open --> HalfOpen: after the 30s cooldown, on the next call
+    HalfOpen --> Closed: trial succeeds
+    HalfOpen --> Open: trial fails, new 30s cooldown
+```
+
+It counts consecutive failures (timeouts, connection errors and unusable answers). While it is
+open the model is not called at all, so payments are not held up behind a model that is down. It
+only protects calls after it opens: the three that trip it, and each trial call, still wait the
+full timeout. State is in memory per fraud-service instance.
 
 ## Tech stack (locked)
 
